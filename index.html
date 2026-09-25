@@ -1,0 +1,840 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+<meta name="theme-color" content="#000000" />
+<title>Camera Overlay</title>
+<style>
+  :root{
+    --panel-bg: rgba(12,12,12,.82);
+    --panel-border: rgba(255,255,255,.10);
+    --text: #fff;
+    --muted: rgba(255,255,255,.72);
+    --btn: rgba(255,255,255,.11);
+    --btn-hover: rgba(255,255,255,.18);
+    --accent: #ffffff;
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-right: env(safe-area-inset-right, 0px);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+    --safe-left: env(safe-area-inset-left, 0px);
+  }
+
+  *{
+    box-sizing: border-box;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  html, body{
+    margin: 0;
+    width: 100%;
+    height: 100%;
+    background: #000;
+    color: var(--text);
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    overflow: hidden;
+    overscroll-behavior: none;
+    touch-action: none;
+  }
+
+  body{
+    position: fixed;
+    inset: 0;
+  }
+
+  #app{
+    position: fixed;
+    inset: 0;
+    background: #000;
+    overflow: hidden;
+  }
+
+  #cameraStage{
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    background:
+      radial-gradient(circle at center, rgba(255,255,255,.04), rgba(0,0,0,.40)),
+      #000;
+    touch-action: none;
+  }
+
+  #camera{
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    background: #000;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  #camera.mirror{
+    transform: scaleX(-1);
+  }
+
+  #overlayLayer{
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    overflow: hidden;
+  }
+
+  #overlayImage{
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    max-width: none;
+    max-height: none;
+    width: min(62vw, 62vh);
+    height: auto;
+    transform: translate(-50%, -50%) scale(1);
+    transform-origin: center center;
+    opacity: .45;
+    display: none;
+    user-select: none;
+    -webkit-user-drag: none;
+    -webkit-user-select: none;
+    pointer-events: none;
+    will-change: transform, opacity, width;
+  }
+
+  #topBar{
+    position: absolute;
+    top: calc(10px + var(--safe-top));
+    left: calc(10px + var(--safe-left));
+    right: calc(10px + var(--safe-right));
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    z-index: 20;
+    pointer-events: none;
+  }
+
+  .topGroup{
+    display: flex;
+    gap: 8px;
+    pointer-events: auto;
+  }
+
+  button, .fileButton{
+    border: 1px solid var(--panel-border);
+    background: var(--btn);
+    color: #fff;
+    min-height: 44px;
+    border-radius: 14px;
+    padding: 0 14px;
+    font: inherit;
+    font-weight: 650;
+    cursor: pointer;
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    box-shadow: 0 5px 18px rgba(0,0,0,.20);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    white-space: nowrap;
+  }
+
+  button:active, .fileButton:active{
+    transform: scale(.97);
+    background: var(--btn-hover);
+  }
+
+  button:disabled{
+    opacity: .45;
+    cursor: default;
+  }
+
+  .iconOnly{
+    width: 46px;
+    padding: 0;
+    font-size: 19px;
+  }
+
+  #fileInput{
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  #controls{
+    position: absolute;
+    left: calc(10px + var(--safe-left));
+    right: calc(10px + var(--safe-right));
+    bottom: calc(10px + var(--safe-bottom));
+    z-index: 30;
+    background: var(--panel-bg);
+    border: 1px solid var(--panel-border);
+    border-radius: 20px;
+    padding: 13px;
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    box-shadow: 0 10px 34px rgba(0,0,0,.38);
+  }
+
+  .controlRow{
+    display: grid;
+    grid-template-columns: 86px 1fr 52px;
+    gap: 10px;
+    align-items: center;
+    min-height: 42px;
+  }
+
+  .controlRow + .controlRow{
+    margin-top: 8px;
+  }
+
+  .label{
+    color: var(--muted);
+    font-size: 14px;
+    font-weight: 700;
+  }
+
+  .value{
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+    font-size: 13px;
+    color: var(--muted);
+  }
+
+  input[type="range"]{
+    appearance: none;
+    -webkit-appearance: none;
+    width: 100%;
+    height: 28px;
+    background: transparent;
+    touch-action: pan-x;
+  }
+
+  input[type="range"]::-webkit-slider-runnable-track{
+    height: 5px;
+    border-radius: 999px;
+    background: rgba(255,255,255,.25);
+  }
+
+  input[type="range"]::-webkit-slider-thumb{
+    appearance: none;
+    -webkit-appearance: none;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: #fff;
+    margin-top: -8.5px;
+    border: none;
+    box-shadow: 0 2px 8px rgba(0,0,0,.45);
+  }
+
+  input[type="range"]::-moz-range-track{
+    height: 5px;
+    border-radius: 999px;
+    background: rgba(255,255,255,.25);
+  }
+
+  input[type="range"]::-moz-range-thumb{
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    border: none;
+    background: #fff;
+  }
+
+  #actionRow{
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 8px;
+    margin-top: 10px;
+  }
+
+  #actionRow button{
+    width: 100%;
+    padding: 0 10px;
+    font-size: 13px;
+  }
+
+  #status{
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    z-index: 15;
+    transform: translate(-50%, -50%);
+    width: min(88vw, 430px);
+    text-align: center;
+    color: rgba(255,255,255,.90);
+    background: rgba(0,0,0,.42);
+    border: 1px solid rgba(255,255,255,.10);
+    padding: 12px 14px;
+    border-radius: 14px;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    pointer-events: none;
+    font-size: 14px;
+    line-height: 1.35;
+  }
+
+  #status.hidden{
+    display: none;
+  }
+
+  #gestureHint{
+    position: absolute;
+    left: 50%;
+    bottom: calc(170px + var(--safe-bottom));
+    z-index: 18;
+    transform: translateX(-50%);
+    color: rgba(255,255,255,.78);
+    background: rgba(0,0,0,.32);
+    border-radius: 999px;
+    padding: 7px 12px;
+    font-size: 12px;
+    white-space: nowrap;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity .2s ease;
+  }
+
+  #gestureHint.show{
+    opacity: 1;
+  }
+
+  @media (max-width: 420px){
+    .controlRow{
+      grid-template-columns: 72px 1fr 44px;
+      gap: 8px;
+    }
+    .label{
+      font-size: 13px;
+    }
+    #controls{
+      padding: 11px;
+      border-radius: 18px;
+    }
+    button, .fileButton{
+      border-radius: 13px;
+      min-height: 42px;
+      padding: 0 11px;
+      font-size: 14px;
+    }
+    #actionRow button{
+      font-size: 12px;
+    }
+  }
+
+  @media (orientation: landscape) and (max-height: 520px){
+    #controls{
+      left: auto;
+      width: min(390px, 46vw);
+      top: calc(66px + var(--safe-top));
+      bottom: auto;
+    }
+
+    #gestureHint{
+      display: none;
+    }
+
+    #overlayImage{
+      width: min(56vw, 70vh);
+    }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="cameraStage">
+    <video id="camera" autoplay muted playsinline></video>
+
+    <div id="overlayLayer">
+      <img id="overlayImage" alt="Imagem sobreposta" draggable="false" />
+    </div>
+
+    <div id="status">Toque em <strong>Iniciar câmera</strong> e permita o acesso à câmera.</div>
+    <div id="gestureHint">Use dois dedos para aumentar ou diminuir a imagem</div>
+
+    <div id="topBar">
+      <div class="topGroup">
+        <button id="startBtn" type="button">📷 Iniciar câmera</button>
+      </div>
+
+      <div class="topGroup">
+        <button id="switchBtn" type="button" class="iconOnly" title="Trocar câmera" aria-label="Trocar câmera" disabled>↻</button>
+        <label class="fileButton" for="fileInput">＋ Imagem</label>
+        <input id="fileInput" type="file" accept="image/*" />
+      </div>
+    </div>
+
+    <div id="controls">
+      <div class="controlRow">
+        <div class="label">Opacidade</div>
+        <input id="opacityRange" type="range" min="0" max="100" step="1" value="45" />
+        <div id="opacityValue" class="value">45%</div>
+      </div>
+
+      <div class="controlRow">
+        <div class="label">Tamanho</div>
+        <input id="sizeRange" type="range" min="10" max="220" step="1" value="62" />
+        <div id="sizeValue" class="value">62%</div>
+      </div>
+
+      <div id="actionRow">
+        <button id="centerBtn" type="button">◎ Centralizar</button>
+        <button id="hideBtn" type="button" disabled>◐ Ocultar</button>
+        <button id="resetBtn" type="button">↺ Resetar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  "use strict";
+
+  const cameraStage = document.getElementById("cameraStage");
+  const video = document.getElementById("camera");
+  const overlayImage = document.getElementById("overlayImage");
+  const fileInput = document.getElementById("fileInput");
+
+  const startBtn = document.getElementById("startBtn");
+  const switchBtn = document.getElementById("switchBtn");
+  const centerBtn = document.getElementById("centerBtn");
+  const hideBtn = document.getElementById("hideBtn");
+  const resetBtn = document.getElementById("resetBtn");
+
+  const opacityRange = document.getElementById("opacityRange");
+  const sizeRange = document.getElementById("sizeRange");
+  const opacityValue = document.getElementById("opacityValue");
+  const sizeValue = document.getElementById("sizeValue");
+
+  const status = document.getElementById("status");
+  const gestureHint = document.getElementById("gestureHint");
+
+  let stream = null;
+  let facingMode = "environment";
+  let objectUrl = null;
+  let startInProgress = false;
+  let knownVideoDevices = [];
+
+  let overlayVisible = true;
+  let overlayScalePercent = 62;
+  let overlayOpacity = 45;
+
+  const activePointers = new Map();
+  let pinchStartDistance = null;
+  let pinchStartScale = null;
+
+  const isIOS =
+    /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+
+  const isAndroid = /Android/i.test(navigator.userAgent);
+
+  function setStatus(message, visible = true) {
+    status.innerHTML = message;
+    status.classList.toggle("hidden", !visible);
+  }
+
+  function secureContextMessage() {
+    const openedAsFile = location.protocol === "file:";
+    if (openedAsFile) {
+      return "A câmera do navegador não pode ser garantida quando este HTML é aberto diretamente como <strong>arquivo local (file://)</strong>. Publique o mesmo arquivo em um endereço <strong>HTTPS</strong> e abra pelo Safari/Chrome.";
+    }
+    return "A câmera exige uma página em <strong>HTTPS</strong> (ou localhost). Este endereço não está em um contexto seguro.";
+  }
+
+  function stopCamera() {
+    if (stream) {
+      stream.getTracks().forEach(track => {
+        try { track.stop(); } catch (_) {}
+      });
+    }
+    stream = null;
+    try { video.pause(); } catch (_) {}
+    video.srcObject = null;
+    video.classList.remove("mirror");
+    switchBtn.disabled = true;
+  }
+
+  async function waitForVideoReady(timeoutMs = 7000) {
+    if (video.readyState >= 2 && video.videoWidth > 0) return;
+
+    await new Promise((resolve, reject) => {
+      let done = false;
+
+      const finish = (ok, error) => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        video.removeEventListener("loadedmetadata", onReady);
+        video.removeEventListener("canplay", onReady);
+        ok ? resolve() : reject(error);
+      };
+
+      const onReady = () => {
+        if (video.videoWidth > 0 && video.videoHeight > 0) finish(true);
+      };
+
+      const timer = setTimeout(() => {
+        finish(false, new Error("VideoReadyTimeout"));
+      }, timeoutMs);
+
+      video.addEventListener("loadedmetadata", onReady);
+      video.addEventListener("canplay", onReady);
+    });
+  }
+
+  async function refreshVideoDevices() {
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      knownVideoDevices = devices.filter(d => d.kind === "videoinput");
+    } catch (_) {
+      knownVideoDevices = [];
+    }
+  }
+
+  function buildConstraintAttempts(preferredFacing) {
+    const attempts = [];
+
+    // 1) Preferência simples: é a opção mais compatível entre Safari iOS e Chrome Android.
+    attempts.push({
+      audio: false,
+      video: { facingMode: { ideal: preferredFacing } }
+    });
+
+    // 2) Qualidade moderada; evita pedir 1080p rígido em aparelhos que negociam mal constraints.
+    attempts.push({
+      audio: false,
+      video: {
+        facingMode: preferredFacing,
+        width: { ideal: 1280 },
+        height: { ideal: 720 }
+      }
+    });
+
+    // 3) Fallback universal.
+    attempts.push({
+      audio: false,
+      video: true
+    });
+
+    return attempts;
+  }
+
+  async function requestCameraStream(preferredFacing) {
+    const attempts = buildConstraintAttempts(preferredFacing);
+    let lastError = null;
+
+    for (const constraints of attempts) {
+      try {
+        const candidate = await navigator.mediaDevices.getUserMedia(constraints);
+        if (candidate && candidate.getVideoTracks().length) return candidate;
+        candidate?.getTracks?.().forEach(t => t.stop());
+      } catch (err) {
+        lastError = err;
+
+        // Erros de permissão não melhoram tentando outras constraints.
+        if (err?.name === "NotAllowedError" || err?.name === "SecurityError") {
+          throw err;
+        }
+      }
+    }
+
+    throw lastError || new Error("CameraUnavailable");
+  }
+
+  function permissionHelp(error) {
+    if (!window.isSecureContext || location.protocol === "file:") {
+      return secureContextMessage();
+    }
+
+    if (error?.name === "NotAllowedError" || error?.name === "SecurityError") {
+      if (isIOS) {
+        return "O Safari não recebeu permissão para usar a câmera. No iPhone/iPad, abra este site no <strong>Safari</strong>, toque em <strong>aA → Ajustes do Site → Câmera → Permitir</strong>. Se necessário, confira também <strong>Ajustes do iPhone → Safari → Câmera</strong>.";
+      }
+      if (isAndroid) {
+        return "O Chrome não recebeu permissão para usar a câmera. No Android, toque no ícone ao lado do endereço → <strong>Permissões → Câmera → Permitir</strong>. Também confira <strong>Configurações do Android → Apps → Chrome → Permissões → Câmera</strong>.";
+      }
+      return "A permissão da câmera foi bloqueada. Libere a câmera nas permissões deste site e toque novamente em <strong>Iniciar câmera</strong>.";
+    }
+
+    if (error?.name === "NotFoundError" || error?.name === "DevicesNotFoundError") {
+      return "Nenhuma câmera compatível foi encontrada neste aparelho.";
+    }
+
+    if (error?.name === "NotReadableError" || error?.name === "TrackStartError") {
+      return "A câmera existe, mas está indisponível. Feche outros aplicativos que estejam usando a câmera e tente novamente.";
+    }
+
+    if (error?.name === "OverconstrainedError" || error?.name === "ConstraintNotSatisfiedError") {
+      return "A câmera não aceitou uma das configurações solicitadas. O programa tentou configurações alternativas automaticamente, mas nenhuma funcionou.";
+    }
+
+    if (error?.message === "VideoReadyTimeout") {
+      return "A câmera foi liberada, mas o navegador não iniciou o vídeo. Feche e reabra a página e tente novamente.";
+    }
+
+    return "Não foi possível iniciar a câmera neste navegador. Tente abrir a página diretamente no Safari (iPhone) ou Chrome (Android), usando HTTPS.";
+  }
+
+  async function attachStream(candidate) {
+    stream = candidate;
+
+    // iOS Safari é sensível a estes atributos estarem presentes antes do play().
+    video.setAttribute("playsinline", "");
+    video.setAttribute("webkit-playsinline", "");
+    video.muted = true;
+    video.autoplay = true;
+    video.srcObject = stream;
+
+    await waitForVideoReady();
+    await video.play();
+
+    const track = stream.getVideoTracks()[0];
+    const settings = track?.getSettings?.() || {};
+    const actualFacing = settings.facingMode || facingMode;
+
+    // Em câmera frontal, espelhamento é visualmente mais natural.
+    video.classList.toggle("mirror", actualFacing === "user");
+
+    await refreshVideoDevices();
+    switchBtn.disabled = knownVideoDevices.length < 2;
+
+    // Se o navegador informa a câmera ativa de fato, sincroniza o estado.
+    if (settings.facingMode === "environment" || settings.facingMode === "user") {
+      facingMode = settings.facingMode;
+    }
+  }
+
+  async function startCamera() {
+    if (startInProgress) return;
+
+    if (!window.isSecureContext || location.protocol === "file:") {
+      setStatus(secureContextMessage());
+      return;
+    }
+
+    if (!navigator.mediaDevices || typeof navigator.mediaDevices.getUserMedia !== "function") {
+      setStatus("Este navegador não disponibiliza a API moderna de câmera. Abra a página no Safari atualizado (iPhone/iPad) ou Chrome atualizado (Android).");
+      return;
+    }
+
+    startInProgress = true;
+    startBtn.disabled = true;
+    switchBtn.disabled = true;
+    setStatus("Abrindo a câmera…");
+
+    try {
+      stopCamera();
+
+      const candidate = await requestCameraStream(facingMode);
+      await attachStream(candidate);
+
+      setStatus("", false);
+      startBtn.textContent = "✓ Câmera ativa";
+    } catch (error) {
+      console.error("Camera error:", error);
+      stopCamera();
+      startBtn.textContent = "📷 Iniciar câmera";
+      setStatus(permissionHelp(error));
+    } finally {
+      startInProgress = false;
+      startBtn.disabled = false;
+      if (stream && knownVideoDevices.length >= 2) {
+        switchBtn.disabled = false;
+      }
+    }
+  }
+
+  async function switchCamera() {
+    if (startInProgress) return;
+    facingMode = facingMode === "environment" ? "user" : "environment";
+    await startCamera();
+  }
+
+  function loadOverlay(file) {
+    if (!file || !file.type || !file.type.startsWith("image/")) return;
+
+    if (objectUrl) {
+      URL.revokeObjectURL(objectUrl);
+      objectUrl = null;
+    }
+
+    objectUrl = URL.createObjectURL(file);
+
+    overlayImage.onload = () => {
+      overlayVisible = true;
+      overlayImage.style.display = "block";
+      hideBtn.disabled = false;
+      hideBtn.textContent = "◐ Ocultar";
+      centerOverlay();
+
+      gestureHint.classList.add("show");
+      setTimeout(() => gestureHint.classList.remove("show"), 2200);
+    };
+
+    overlayImage.onerror = () => {
+      setStatus("Não foi possível carregar essa imagem.");
+    };
+
+    overlayImage.src = objectUrl;
+  }
+
+  function setOpacity(value) {
+    overlayOpacity = Math.max(0, Math.min(100, Number(value)));
+    overlayImage.style.opacity = String(overlayOpacity / 100);
+    opacityRange.value = String(Math.round(overlayOpacity));
+    opacityValue.textContent = `${Math.round(overlayOpacity)}%`;
+  }
+
+  function setSize(value) {
+    overlayScalePercent = Math.max(10, Math.min(220, Number(value)));
+
+    // Mantém o mesmo conceito de escala visual em retrato e paisagem.
+    if (matchMedia("(orientation: landscape)").matches) {
+      const target = Math.max(
+        40,
+        Math.min(
+          innerWidth * overlayScalePercent / 100,
+          innerHeight * 1.60
+        )
+      );
+      overlayImage.style.width = `${target}px`;
+    } else {
+      overlayImage.style.width = `${overlayScalePercent}vw`;
+    }
+
+    sizeRange.value = String(Math.round(overlayScalePercent));
+    sizeValue.textContent = `${Math.round(overlayScalePercent)}%`;
+  }
+
+  function centerOverlay() {
+    overlayImage.style.left = "50%";
+    overlayImage.style.top = "50%";
+    overlayImage.style.transform = "translate(-50%, -50%)";
+  }
+
+  function toggleOverlay() {
+    if (!overlayImage.src) return;
+    overlayVisible = !overlayVisible;
+    overlayImage.style.display = overlayVisible ? "block" : "none";
+    hideBtn.textContent = overlayVisible ? "◐ Ocultar" : "◑ Mostrar";
+  }
+
+  function resetOverlay() {
+    setOpacity(45);
+    setSize(62);
+    centerOverlay();
+
+    if (overlayImage.src) {
+      overlayVisible = true;
+      overlayImage.style.display = "block";
+      hideBtn.disabled = false;
+      hideBtn.textContent = "◐ Ocultar";
+    }
+  }
+
+  function distanceBetweenPointers() {
+    if (activePointers.size !== 2) return null;
+    const points = [...activePointers.values()];
+    return Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y);
+  }
+
+  cameraStage.addEventListener("pointerdown", event => {
+    if (!overlayImage.src || !overlayVisible) return;
+
+    activePointers.set(event.pointerId, {
+      x: event.clientX,
+      y: event.clientY
+    });
+
+    if (activePointers.size === 2) {
+      pinchStartDistance = distanceBetweenPointers();
+      pinchStartScale = overlayScalePercent;
+    }
+  }, { passive: true });
+
+  cameraStage.addEventListener("pointermove", event => {
+    if (!activePointers.has(event.pointerId)) return;
+
+    activePointers.set(event.pointerId, {
+      x: event.clientX,
+      y: event.clientY
+    });
+
+    if (activePointers.size === 2 && pinchStartDistance && pinchStartScale) {
+      const currentDistance = distanceBetweenPointers();
+      if (currentDistance) {
+        setSize(pinchStartScale * (currentDistance / pinchStartDistance));
+      }
+    }
+  }, { passive: true });
+
+  function releasePointer(event) {
+    activePointers.delete(event.pointerId);
+    if (activePointers.size < 2) {
+      pinchStartDistance = null;
+      pinchStartScale = null;
+    }
+  }
+
+  cameraStage.addEventListener("pointerup", releasePointer, { passive: true });
+  cameraStage.addEventListener("pointercancel", releasePointer, { passive: true });
+  cameraStage.addEventListener("pointerleave", releasePointer, { passive: true });
+
+  opacityRange.addEventListener("input", () => setOpacity(opacityRange.value));
+  sizeRange.addEventListener("input", () => setSize(sizeRange.value));
+
+  fileInput.addEventListener("change", () => {
+    const file = fileInput.files?.[0];
+    if (file) loadOverlay(file);
+    fileInput.value = "";
+  });
+
+  startBtn.addEventListener("click", startCamera);
+  switchBtn.addEventListener("click", switchCamera);
+  centerBtn.addEventListener("click", centerOverlay);
+  hideBtn.addEventListener("click", toggleOverlay);
+  resetBtn.addEventListener("click", resetOverlay);
+
+  window.addEventListener("resize", () => {
+    setSize(overlayScalePercent);
+    centerOverlay();
+  }, { passive: true });
+
+  window.addEventListener("orientationchange", () => {
+    setTimeout(() => {
+      setSize(overlayScalePercent);
+      centerOverlay();
+    }, 250);
+  });
+
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden && stream && video.paused) {
+      video.play().catch(() => {});
+    }
+  });
+
+  window.addEventListener("pagehide", () => {
+    stopCamera();
+    if (objectUrl) {
+      URL.revokeObjectURL(objectUrl);
+      objectUrl = null;
+    }
+  });
+
+  setOpacity(45);
+  setSize(62);
+
+  // Explica imediatamente quando o arquivo foi aberto de uma forma
+  // que os navegadores móveis normalmente não autorizam para câmera.
+  if (!window.isSecureContext || location.protocol === "file:") {
+    setStatus(secureContextMessage());
+  } else {
+    setStatus("Toque em <strong>Iniciar câmera</strong> e permita o acesso quando o navegador solicitar.");
+  }
+})();
+</script>
+</body>
+</html>
