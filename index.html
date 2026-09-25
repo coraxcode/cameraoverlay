@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="pt-BR">
+<html lang="en">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
@@ -448,34 +448,34 @@
     <video id="camera" autoplay muted playsinline></video>
 
     <div id="overlayLayer">
-      <img id="overlayImage" alt="Imagem sobreposta" draggable="false" />
+      <img id="overlayImage" alt="Overlay image" draggable="false" />
     </div>
 
-    <div id="status">Toque em <strong>Iniciar câmera</strong> e permita o acesso à câmera.</div>
-    <div id="gestureHint">Pinça: redimensionar • Mover: ative “Mover imagem”</div>
+    <div id="status">Tap <strong>Start Camera</strong> and allow camera access when prompted.</div>
+    <div id="gestureHint">Pinch: resize • Move: enable “Move image”</div>
 
     <div id="topBar">
       <div class="topGroup">
-        <button id="startBtn" type="button">📷 Iniciar</button>
+        <button id="startBtn" type="button">📷 Start Camera</button>
       </div>
 
       <div class="topGroup">
-        <button id="switchBtn" type="button" class="iconOnly" title="Trocar câmera" aria-label="Trocar câmera" disabled>↻</button>
-        <label class="fileButton" for="fileInput">＋ Imagem</label>
+        <button id="switchBtn" type="button" class="iconOnly" title="Switch camera" aria-label="Switch camera" disabled>↻</button>
+        <label class="fileButton" for="fileInput">＋ Image</label>
         <input id="fileInput" type="file" accept="image/*" />
-        <button id="hideUIBtn" type="button" title="Ocultar controles">⌄ Ocultar</button>
+        <button id="hideUIBtn" type="button" title="Hide controls">⌄ Hide</button>
       </div>
     </div>
 
     <div id="controls">
       <div class="controlRow">
-        <div class="label">Opacidade</div>
+        <div class="label">Opacity</div>
         <input id="opacityRange" type="range" min="0" max="100" step="1" value="45" />
         <div id="opacityValue" class="value">45%</div>
       </div>
 
       <div class="controlRow">
-        <div class="label">Tamanho</div>
+        <div class="label">Size</div>
         <input id="sizeRange" type="range" min="10" max="220" step="1" value="62" />
         <div id="sizeValue" class="value">62%</div>
       </div>
@@ -483,18 +483,18 @@
       <div id="modeRow">
         <label class="moveToggle">
           <input id="moveToggle" type="checkbox" />
-          <span>Mover imagem</span>
+          <span>Move image</span>
         </label>
 
         <div id="actionRow">
-          <button id="centerBtn" type="button" title="Centralizar imagem">◎ Centro</button>
-          <button id="hideBtn" type="button" disabled title="Ocultar imagem">◐ Imagem</button>
-          <button id="resetBtn" type="button" title="Resetar ajustes">↺</button>
+          <button id="centerBtn" type="button" title="Center image">◎ Center</button>
+          <button id="hideBtn" type="button" disabled title="Hide image">◐ Image</button>
+          <button id="resetBtn" type="button" title="Reset settings">↺</button>
         </div>
       </div>
     </div>
 
-    <button id="uiToggle" type="button" aria-label="Mostrar controles" title="Mostrar controles">☰</button>
+    <button id="uiToggle" type="button" aria-label="Show controls" title="Show controls">☰</button>
   </div>
 </div>
 
@@ -535,18 +535,17 @@
   let overlayOpacity = 45;
   let overlayPosX = 50;
   let overlayPosY = 50;
-  let dragPointerId = null;
-  let dragOffsetX = 0;
-  let dragOffsetY = 0;
 
   const activePointers = new Map();
   let pinchStartDistance = null;
   let pinchStartScale = null;
+  let dragPointerId = null;
+  let dragOffsetX = 0;
+  let dragOffsetY = 0;
 
   const isIOS =
     /iPad|iPhone|iPod/.test(navigator.userAgent) ||
     (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
-
   const isAndroid = /Android/i.test(navigator.userAgent);
 
   function setStatus(message, visible = true) {
@@ -554,19 +553,20 @@
     status.classList.toggle("hidden", !visible);
   }
 
-  function secureContextMessage() {
-    const openedAsFile = location.protocol === "file:";
-    if (openedAsFile) {
-      return "A câmera do navegador não pode ser garantida quando este HTML é aberto diretamente como <strong>arquivo local (file://)</strong>. Publique o mesmo arquivo em um endereço <strong>HTTPS</strong> e abra pelo Safari/Chrome.";
-    }
-    return "A câmera exige uma página em <strong>HTTPS</strong> (ou localhost). Este endereço não está em um contexto seguro.";
+  function showHint(message, duration = 1800) {
+    gestureHint.textContent = message;
+    gestureHint.classList.add("show");
+    window.clearTimeout(showHint.timer);
+    showHint.timer = window.setTimeout(() => {
+      gestureHint.classList.remove("show");
+    }, duration);
   }
 
   function stopCamera() {
     if (stream) {
-      stream.getTracks().forEach(track => {
+      for (const track of stream.getTracks()) {
         try { track.stop(); } catch (_) {}
-      });
+      }
     }
     stream = null;
     try { video.pause(); } catch (_) {}
@@ -575,193 +575,210 @@
     switchBtn.disabled = true;
   }
 
-  async function waitForVideoReady(timeoutMs = 7000) {
-    if (video.readyState >= 2 && video.videoWidth > 0) return;
+  function getUserMediaCompat(constraints) {
+    if (navigator.mediaDevices && typeof navigator.mediaDevices.getUserMedia === "function") {
+      return navigator.mediaDevices.getUserMedia(constraints);
+    }
 
-    await new Promise((resolve, reject) => {
-      let done = false;
+    const legacy =
+      navigator.getUserMedia ||
+      navigator.webkitGetUserMedia ||
+      navigator.mozGetUserMedia;
 
-      const finish = (ok, error) => {
-        if (done) return;
-        done = true;
-        clearTimeout(timer);
-        video.removeEventListener("loadedmetadata", onReady);
-        video.removeEventListener("canplay", onReady);
-        ok ? resolve() : reject(error);
-      };
+    if (legacy) {
+      return new Promise((resolve, reject) => {
+        legacy.call(navigator, constraints, resolve, reject);
+      });
+    }
 
-      const onReady = () => {
-        if (video.videoWidth > 0 && video.videoHeight > 0) finish(true);
-      };
-
-      const timer = setTimeout(() => {
-        finish(false, new Error("VideoReadyTimeout"));
-      }, timeoutMs);
-
-      video.addEventListener("loadedmetadata", onReady);
-      video.addEventListener("canplay", onReady);
-    });
+    return Promise.reject(
+      Object.assign(new Error("getUserMedia is unavailable"), {
+        name: "GetUserMediaUnavailable"
+      })
+    );
   }
 
   async function refreshVideoDevices() {
+    if (!navigator.mediaDevices || typeof navigator.mediaDevices.enumerateDevices !== "function") {
+      knownVideoDevices = [];
+      return;
+    }
+
     try {
       const devices = await navigator.mediaDevices.enumerateDevices();
-      knownVideoDevices = devices.filter(d => d.kind === "videoinput");
+      knownVideoDevices = devices.filter(device => device.kind === "videoinput");
     } catch (_) {
       knownVideoDevices = [];
     }
   }
 
   function buildConstraintAttempts(preferredFacing) {
-    const attempts = [];
-
-    // 1) Preferência simples: é a opção mais compatível entre Safari iOS e Chrome Android.
-    attempts.push({
-      audio: false,
-      video: { facingMode: { ideal: preferredFacing } }
-    });
-
-    // 2) Qualidade moderada; evita pedir 1080p rígido em aparelhos que negociam mal constraints.
-    attempts.push({
-      audio: false,
-      video: {
-        facingMode: preferredFacing,
-        width: { ideal: 1280 },
-        height: { ideal: 720 }
+    return [
+      {
+        audio: false,
+        video: { facingMode: { ideal: preferredFacing } }
+      },
+      {
+        audio: false,
+        video: {
+          facingMode: preferredFacing,
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        }
+      },
+      {
+        audio: false,
+        video: true
       }
-    });
-
-    // 3) Fallback universal.
-    attempts.push({
-      audio: false,
-      video: true
-    });
-
-    return attempts;
+    ];
   }
 
   async function requestCameraStream(preferredFacing) {
-    const attempts = buildConstraintAttempts(preferredFacing);
     let lastError = null;
 
-    for (const constraints of attempts) {
+    for (const constraints of buildConstraintAttempts(preferredFacing)) {
       try {
-        const candidate = await navigator.mediaDevices.getUserMedia(constraints);
-        if (candidate && candidate.getVideoTracks().length) return candidate;
-        candidate?.getTracks?.().forEach(t => t.stop());
-      } catch (err) {
-        lastError = err;
-
-        // Erros de permissão não melhoram tentando outras constraints.
-        if (err?.name === "NotAllowedError" || err?.name === "SecurityError") {
-          throw err;
+        const candidate = await getUserMediaCompat(constraints);
+        if (candidate?.getVideoTracks?.().length) return candidate;
+        candidate?.getTracks?.().forEach(track => track.stop());
+      } catch (error) {
+        lastError = error;
+        if (
+          error?.name === "NotAllowedError" ||
+          error?.name === "PermissionDeniedError" ||
+          error?.name === "SecurityError"
+        ) {
+          throw error;
         }
       }
     }
 
-    throw lastError || new Error("CameraUnavailable");
+    throw lastError || Object.assign(new Error("Camera unavailable"), { name: "CameraUnavailable" });
   }
 
-  function permissionHelp(error) {
-    if (!window.isSecureContext || location.protocol === "file:") {
-      return secureContextMessage();
-    }
+  async function waitForVideoReady(timeoutMs = 8000) {
+    if (video.readyState >= 2 && video.videoWidth > 0 && video.videoHeight > 0) return;
 
-    if (error?.name === "NotAllowedError" || error?.name === "SecurityError") {
+    await new Promise((resolve, reject) => {
+      let finished = false;
+
+      const cleanup = () => {
+        window.clearTimeout(timer);
+        video.removeEventListener("loadedmetadata", onReady);
+        video.removeEventListener("canplay", onReady);
+      };
+
+      const finish = (ok) => {
+        if (finished) return;
+        finished = true;
+        cleanup();
+        if (ok) resolve();
+        else reject(Object.assign(new Error("Video did not become ready"), { name: "VideoReadyTimeout" }));
+      };
+
+      const onReady = () => {
+        if (video.videoWidth > 0 && video.videoHeight > 0) finish(true);
+      };
+
+      const timer = window.setTimeout(() => finish(false), timeoutMs);
+      video.addEventListener("loadedmetadata", onReady);
+      video.addEventListener("canplay", onReady);
+    });
+  }
+
+  function cameraErrorMessage(error) {
+    const name = error?.name || "";
+
+    if (name === "NotAllowedError" || name === "PermissionDeniedError" || name === "SecurityError") {
+      if (location.protocol === "file:") {
+        return "The browser blocked camera access for this local HTML file. The app did attempt to open the camera. Try opening this same file in the device's main browser rather than an in-app file preview.";
+      }
       if (isIOS) {
-        return "O Safari não recebeu permissão para usar a câmera. No iPhone/iPad, abra este site no <strong>Safari</strong>, toque em <strong>aA → Ajustes do Site → Câmera → Permitir</strong>. Se necessário, confira também <strong>Ajustes do iPhone → Safari → Câmera</strong>.";
+        return "Camera access was denied. In Safari, open the website settings, set <strong>Camera → Allow</strong>, then tap <strong>Start Camera</strong> again.";
       }
       if (isAndroid) {
-        return "O Chrome não recebeu permissão para usar a câmera. No Android, toque no ícone ao lado do endereço → <strong>Permissões → Câmera → Permitir</strong>. Também confira <strong>Configurações do Android → Apps → Chrome → Permissões → Câmera</strong>.";
+        return "Camera access was denied. In Chrome, open <strong>Site permissions → Camera → Allow</strong>, then tap <strong>Start Camera</strong> again.";
       }
-      return "A permissão da câmera foi bloqueada. Libere a câmera nas permissões deste site e toque novamente em <strong>Iniciar câmera</strong>.";
+      return "Camera access was denied by the browser. Allow camera permission and try again.";
     }
 
-    if (error?.name === "NotFoundError" || error?.name === "DevicesNotFoundError") {
-      return "Nenhuma câmera compatível foi encontrada neste aparelho.";
+    if (name === "NotFoundError" || name === "DevicesNotFoundError") {
+      return "No usable camera was found on this device.";
     }
 
-    if (error?.name === "NotReadableError" || error?.name === "TrackStartError") {
-      return "A câmera existe, mas está indisponível. Feche outros aplicativos que estejam usando a câmera e tente novamente.";
+    if (name === "NotReadableError" || name === "TrackStartError") {
+      return "The camera is present but unavailable. Close other apps that may be using it and try again.";
     }
 
-    if (error?.name === "OverconstrainedError" || error?.name === "ConstraintNotSatisfiedError") {
-      return "A câmera não aceitou uma das configurações solicitadas. O programa tentou configurações alternativas automaticamente, mas nenhuma funcionou.";
+    if (name === "OverconstrainedError" || name === "ConstraintNotSatisfiedError") {
+      return "The camera rejected the requested settings. The app also tried fallback settings, but none were accepted.";
     }
 
-    if (error?.message === "VideoReadyTimeout") {
-      return "A câmera foi liberada, mas o navegador não iniciou o vídeo. Feche e reabra a página e tente novamente.";
+    if (name === "VideoReadyTimeout") {
+      return "Camera permission was granted, but the live video did not start. Close and reopen the page, then try again.";
     }
 
-    return "Não foi possível iniciar a câmera neste navegador. Tente abrir a página diretamente no Safari (iPhone) ou Chrome (Android), usando HTTPS.";
+    if (name === "GetUserMediaUnavailable") {
+      return "This browser or file viewer does not expose camera access to HTML pages. Open the file in the device's main browser.";
+    }
+
+    return `The camera could not be started${name ? ` (${name})` : ""}.`;
   }
 
   async function attachStream(candidate) {
     stream = candidate;
 
-    // iOS Safari é sensível a estes atributos estarem presentes antes do play().
+    video.setAttribute("autoplay", "");
+    video.setAttribute("muted", "");
     video.setAttribute("playsinline", "");
     video.setAttribute("webkit-playsinline", "");
     video.muted = true;
-    video.autoplay = true;
+    video.defaultMuted = true;
+    video.playsInline = true;
     video.srcObject = stream;
 
+    try { await video.play(); } catch (_) {}
     await waitForVideoReady();
-    await video.play();
+    try { await video.play(); } catch (_) {}
 
     const track = stream.getVideoTracks()[0];
     const settings = track?.getSettings?.() || {};
     const actualFacing = settings.facingMode || facingMode;
 
-    // Em câmera frontal, espelhamento é visualmente mais natural.
-    video.classList.toggle("mirror", actualFacing === "user");
+    if (actualFacing === "user" || actualFacing === "environment") {
+      facingMode = actualFacing;
+    }
+
+    video.classList.toggle("mirror", facingMode === "user");
 
     await refreshVideoDevices();
-    switchBtn.disabled = knownVideoDevices.length < 2;
-
-    // Se o navegador informa a câmera ativa de fato, sincroniza o estado.
-    if (settings.facingMode === "environment" || settings.facingMode === "user") {
-      facingMode = settings.facingMode;
-    }
+    switchBtn.disabled = knownVideoDevices.length === 1;
   }
 
   async function startCamera() {
     if (startInProgress) return;
 
-    if (!window.isSecureContext || location.protocol === "file:") {
-      setStatus(secureContextMessage());
-      return;
-    }
-
-    if (!navigator.mediaDevices || typeof navigator.mediaDevices.getUserMedia !== "function") {
-      setStatus("Este navegador não disponibiliza a API moderna de câmera. Abra a página no Safari atualizado (iPhone/iPad) ou Chrome atualizado (Android).");
-      return;
-    }
-
     startInProgress = true;
     startBtn.disabled = true;
     switchBtn.disabled = true;
-    setStatus("Abrindo a câmera…");
+    setStatus("Requesting camera access…");
 
     try {
       stopCamera();
-
       const candidate = await requestCameraStream(facingMode);
       await attachStream(candidate);
-
       setStatus("", false);
-      startBtn.textContent = "✓ Câmera ativa";
+      startBtn.textContent = "✓ Camera Active";
+      switchBtn.disabled = false;
     } catch (error) {
       console.error("Camera error:", error);
       stopCamera();
-      startBtn.textContent = "📷 Iniciar câmera";
-      setStatus(permissionHelp(error));
+      startBtn.textContent = "📷 Start Camera";
+      setStatus(cameraErrorMessage(error));
     } finally {
       startInProgress = false;
       startBtn.disabled = false;
-      if (stream && knownVideoDevices.length >= 2) {
-        switchBtn.disabled = false;
-      }
+      if (stream) switchBtn.disabled = false;
     }
   }
 
@@ -772,7 +789,10 @@
   }
 
   function loadOverlay(file) {
-    if (!file || !file.type || !file.type.startsWith("image/")) return;
+    if (!file || !file.type?.startsWith("image/")) {
+      setStatus("Please choose a valid image file.");
+      return;
+    }
 
     if (objectUrl) {
       URL.revokeObjectURL(objectUrl);
@@ -785,38 +805,35 @@
       overlayVisible = true;
       overlayImage.style.display = "block";
       hideBtn.disabled = false;
-      hideBtn.textContent = "◐ Ocultar";
+      hideBtn.textContent = "◐ Image";
       centerOverlay();
-
-      gestureHint.classList.add("show");
-      setTimeout(() => gestureHint.classList.remove("show"), 2200);
+      setStatus("", false);
+      showHint('Pinch to resize • enable "Move image" to drag', 2200);
     };
 
     overlayImage.onerror = () => {
-      setStatus("Não foi possível carregar essa imagem.");
+      setStatus("The selected image could not be loaded.");
     };
 
     overlayImage.src = objectUrl;
   }
 
   function setOpacity(value) {
-    overlayOpacity = Math.max(0, Math.min(100, Number(value)));
+    const numeric = Number(value);
+    overlayOpacity = Number.isFinite(numeric) ? Math.max(0, Math.min(100, numeric)) : 45;
     overlayImage.style.opacity = String(overlayOpacity / 100);
     opacityRange.value = String(Math.round(overlayOpacity));
     opacityValue.textContent = `${Math.round(overlayOpacity)}%`;
   }
 
   function setSize(value) {
-    overlayScalePercent = Math.max(10, Math.min(220, Number(value)));
+    const numeric = Number(value);
+    overlayScalePercent = Number.isFinite(numeric) ? Math.max(10, Math.min(220, numeric)) : 62;
 
-    // Mantém o mesmo conceito de escala visual em retrato e paisagem.
-    if (matchMedia("(orientation: landscape)").matches) {
+    if (window.matchMedia("(orientation: landscape)").matches) {
       const target = Math.max(
         40,
-        Math.min(
-          innerWidth * overlayScalePercent / 100,
-          innerHeight * 1.60
-        )
+        Math.min(window.innerWidth * overlayScalePercent / 100, window.innerHeight * 1.6)
       );
       overlayImage.style.width = `${target}px`;
     } else {
@@ -859,7 +876,7 @@
     if (!overlayImage.src) return;
     overlayVisible = !overlayVisible;
     overlayImage.style.display = overlayVisible ? "block" : "none";
-    hideBtn.textContent = overlayVisible ? "◐ Ocultar" : "◑ Mostrar";
+    hideBtn.textContent = overlayVisible ? "◐ Image" : "◑ Show";
   }
 
   function resetOverlay() {
@@ -874,7 +891,7 @@
       overlayVisible = true;
       overlayImage.style.display = "block";
       hideBtn.disabled = false;
-      hideBtn.textContent = "◐ Ocultar";
+      hideBtn.textContent = "◐ Image";
     }
   }
 
@@ -884,66 +901,66 @@
     return Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y);
   }
 
+  function beginPinchIfPossible() {
+    if (activePointers.size !== 2) return;
+    pinchStartDistance = distanceBetweenPointers();
+    pinchStartScale = overlayScalePercent;
+
+    if (dragPointerId !== null) {
+      overlayImage.classList.remove("dragging");
+      dragPointerId = null;
+    }
+  }
+
   cameraStage.addEventListener("pointerdown", event => {
     if (!overlayImage.src || !overlayVisible) return;
 
-    // Arrastar com 1 dedo/mouse somente quando o modo "Mover imagem" estiver ativo.
-    if (moveToggle.checked && event.target === overlayImage && activePointers.size === 0) {
+    activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+
+    if (activePointers.size === 2) {
+      beginPinchIfPossible();
+      event.preventDefault();
+      return;
+    }
+
+    if (moveToggle.checked && event.target === overlayImage) {
       dragPointerId = event.pointerId;
       overlayImage.classList.add("dragging");
 
       const rect = cameraStage.getBoundingClientRect();
       const currentX = rect.left + rect.width * (overlayPosX / 100);
       const currentY = rect.top + rect.height * (overlayPosY / 100);
-
       dragOffsetX = event.clientX - currentX;
       dragOffsetY = event.clientY - currentY;
 
       try { overlayImage.setPointerCapture(event.pointerId); } catch (_) {}
       event.preventDefault();
-      return;
-    }
-
-    activePointers.set(event.pointerId, {
-      x: event.clientX,
-      y: event.clientY
-    });
-
-    if (activePointers.size === 2) {
-      pinchStartDistance = distanceBetweenPointers();
-      pinchStartScale = overlayScalePercent;
     }
   }, { passive: false });
 
   cameraStage.addEventListener("pointermove", event => {
-    if (dragPointerId === event.pointerId && moveToggle.checked) {
-      const rect = cameraStage.getBoundingClientRect();
+    if (!activePointers.has(event.pointerId)) return;
 
-      const x = ((event.clientX - dragOffsetX - rect.left) / rect.width) * 100;
-      const y = ((event.clientY - dragOffsetY - rect.top) / rect.height) * 100;
+    activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
 
-      // Permite mover quase até as bordas sem perder completamente a imagem.
-      overlayPosX = Math.max(-20, Math.min(120, x));
-      overlayPosY = Math.max(-20, Math.min(120, y));
-      applyOverlayPosition();
-
+    if (activePointers.size === 2 && pinchStartDistance && pinchStartScale) {
+      const currentDistance = distanceBetweenPointers();
+      if (currentDistance) {
+        setSize(pinchStartScale * (currentDistance / pinchStartDistance));
+      }
       event.preventDefault();
       return;
     }
 
-    if (!activePointers.has(event.pointerId)) return;
+    if (dragPointerId === event.pointerId && moveToggle.checked) {
+      const rect = cameraStage.getBoundingClientRect();
+      const x = ((event.clientX - dragOffsetX - rect.left) / rect.width) * 100;
+      const y = ((event.clientY - dragOffsetY - rect.top) / rect.height) * 100;
 
-    activePointers.set(event.pointerId, {
-      x: event.clientX,
-      y: event.clientY
-    });
-
-    if (activePointers.size === 2 && pinchStartDistance && pinchStartScale) {
-      const currentDistance = distanceBetweenPointers();
-
-      if (currentDistance) {
-        setSize(pinchStartScale * (currentDistance / pinchStartDistance));
-      }
+      overlayPosX = Math.max(-20, Math.min(120, x));
+      overlayPosY = Math.max(-20, Math.min(120, y));
+      applyOverlayPosition();
+      event.preventDefault();
     }
   }, { passive: false });
 
@@ -983,9 +1000,7 @@
   moveToggle.addEventListener("change", () => {
     setMoveMode(moveToggle.checked);
     if (moveToggle.checked && overlayImage.src) {
-      gestureHint.textContent = "Arraste a imagem com um dedo • desmarque para travar";
-      gestureHint.classList.add("show");
-      setTimeout(() => gestureHint.classList.remove("show"), 1800);
+      showHint("Drag with one finger • pinch with two fingers • disable Move image to lock", 2200);
     }
   });
 
@@ -998,7 +1013,7 @@
   }, { passive: true });
 
   window.addEventListener("orientationchange", () => {
-    setTimeout(() => {
+    window.setTimeout(() => {
       setSize(overlayScalePercent);
       applyOverlayPosition();
     }, 250);
@@ -1020,13 +1035,12 @@
 
   setOpacity(45);
   setSize(62);
+  centerOverlay();
 
-  // Explica imediatamente quando o arquivo foi aberto de uma forma
-  // que os navegadores móveis normalmente não autorizam para câmera.
-  if (!window.isSecureContext || location.protocol === "file:") {
-    setStatus(secureContextMessage());
+  if (location.protocol === "file:") {
+    setStatus("Local file detected. Tap <strong>Start Camera</strong>; the app will attempt camera access directly.");
   } else {
-    setStatus("Toque em <strong>Iniciar câmera</strong> e permita o acesso quando o navegador solicitar.");
+    setStatus("Tap <strong>Start Camera</strong> and allow camera access when prompted.");
   }
 })();
 </script>
